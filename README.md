@@ -63,7 +63,7 @@ geojson-platform/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/geojson-platform.git
+git clone https://github.com/Harishkumar833/geojson-platform.git
 cd geojson-platform
 ```
 
