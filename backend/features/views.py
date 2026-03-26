@@ -34,16 +34,6 @@ class FeatureViewSet(viewsets.ModelViewSet):
 
         return queryset
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        bbox = request.query_params.get("bbox")
-
-        if bbox:
-            serializer = self.get_serializer(queryset, many=True)
-            return Response(serializer.data)
-
-        return super().list(request, *args, **kwargs)
-
     def create(self, request, *args, **kwargs):
         geometry_data = request.data.get("geometry")
         properties = request.data.get("properties", {})
@@ -55,7 +45,12 @@ class FeatureViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            geometry = GEOSGeometry(str(geometry_data))
+            if isinstance(geometry_data, dict):
+                import json
+                geometry = GEOSGeometry(json.dumps(geometry_data))
+            else:
+                geometry = GEOSGeometry(str(geometry_data))
+
             geometry.srid = 4326
         except Exception:
             return Response(
@@ -78,7 +73,12 @@ class FeatureViewSet(viewsets.ModelViewSet):
 
         if geometry_data:
             try:
-                geometry = GEOSGeometry(str(geometry_data))
+                if isinstance(geometry_data, dict):
+                    import json
+                    geometry = GEOSGeometry(json.dumps(geometry_data))
+                else:
+                    geometry = GEOSGeometry(str(geometry_data))
+
                 geometry.srid = 4326
                 instance.geometry = geometry
             except Exception:

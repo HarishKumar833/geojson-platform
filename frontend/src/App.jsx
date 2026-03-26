@@ -11,6 +11,7 @@ import {
 import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
+const FEATURES_PER_PAGE = 5;
 
 function AuthScreen({ onLogin }) {
   const [loginForm, setLoginForm] = useState({
@@ -199,12 +200,12 @@ function Workspace({ user, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [loadedCount, setLoadedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [hasInitialFit, setHasInitialFit] = useState(false);
   const [featurePage, setFeaturePage] = useState(1);
 
   const debounceRef = useRef(null);
   const lastBoundsRef = useRef(null);
-  const selectedLayerRef = useRef(null);
 
   const fetchFeaturesByBounds = useCallback(
     async (bounds) => {
@@ -212,6 +213,7 @@ function Workspace({ user, onLogout }) {
 
       const southWest = bounds.getSouthWest();
       const northEast = bounds.getNorthEast();
+
       const bbox = [
         southWest.lng,
         southWest.lat,
@@ -223,61 +225,72 @@ function Workspace({ user, onLogout }) {
         setLoading(true);
         setError("");
 
-        const response = await fetch(`${API_BASE_URL}/api/features/?bbox=${bbox}`, {
-          headers: {
-            Authorization: `Bearer ${user.access}`,
-          },
-        });
+        let nextUrl = `${API_BASE_URL}/api/features/?bbox=${bbox}`;
+        let allResults = [];
+        let matchingTotal = 0;
 
-        if (response.status === 401) {
-          localStorage.removeItem("geojson_auth");
-          onLogout();
-          return;
+        const pageLimit = 4;
+        let pageCounter = 0;
+
+        while (nextUrl && pageCounter < pageLimit) {
+          const response = await fetch(nextUrl, {
+            headers: {
+              Authorization: `Bearer ${user.access}`,
+            },
+          });
+
+          if (response.status === 401) {
+            localStorage.removeItem("geojson_auth");
+            onLogout();
+            return;
+          }
+
+          if (!response.ok) {
+            throw new Error("Failed to load features.");
+          }
+
+          const data = await response.json();
+
+          matchingTotal = data.count;
+          allResults = [...allResults, ...data.results];
+
+          nextUrl = data.next;
+          pageCounter += 1;
         }
 
-        if (!response.ok) {
-          throw new Error("Failed to load features for current map extent.");
-        }
-
-        const data = await response.json();
-
-        const rawFeatureList = Array.isArray(data.results)
-          ? data.results
-          : Array.isArray(data)
-            ? data
-            : [];
-
-        const polygonFeatures = rawFeatureList.filter((feature) => {
-          const geometryType = feature?.geometry?.type;
-          return geometryType === "Polygon" || geometryType === "MultiPolygon";
+        const polygonFeatures = allResults.filter((feature) => {
+          const type = feature?.geometry?.type;
+          return type === "Polygon" || type === "MultiPolygon";
         });
 
         setGeojson({
           type: "FeatureCollection",
           features: polygonFeatures,
         });
+
         setLoadedCount(polygonFeatures.length);
+        setTotalCount(matchingTotal);
         setFeaturePage(1);
 
         if (
           selectedFeature &&
-          !polygonFeatures.some((feature) => feature.id === selectedFeature.id)
+          !polygonFeatures.some((f) => f.id === selectedFeature.id)
         ) {
           setSelectedFeature(null);
         }
       } catch (err) {
-        setError(err.message || "Unable to load features.");
+        setError(err.message || "Error loading features");
         setGeojson({
           type: "FeatureCollection",
           features: [],
         });
         setLoadedCount(0);
-        setFeaturePage(1);
+        setTotalCount(0);
       } finally {
         setLoading(false);
       }
     },
-    [onLogout, selectedFeature, user.access]
+    [user.access, onLogout, selectedFeature]
   );
 
   const handleBoundsChange = useCallback(
@@ -318,24 +331,20 @@ function Workspace({ user, onLogout }) {
     [isSelectedFeature]
   );
 
-  const onEachFeature = useCallback(
-    (feature, layer) => {
-      layer.on({
-        click: () => {
-          setSelectedFeature(feature);
-          selectedLayerRef.current = layer;
+  const onEachFeature = useCallback((feature, layer) => {
+    layer.on({
+      click: () => {
+        setSelectedFeature(feature);
 
-          if (layer.getBounds) {
-            const bounds = layer.getBounds();
-            if (bounds && bounds.isValid()) {
-              layer._map.fitBounds(bounds.pad(0.1));
-            }
+        if (layer.getBounds) {
+          const bounds = layer.getBounds();
+          if (bounds && bounds.isValid()) {
+            layer._map.fitBounds(bounds.pad(0.1));
           }
-        },
-      });
-    },
-    []
-  );
+        }
+      },
+    });
+  }, []);
 
   const sortedFeatures = useMemo(() => {
     const features = geojson?.features ?? [];
@@ -352,11 +361,7 @@ function Workspace({ user, onLogout }) {
     });
   }, [geojson]);
 
-  const FEATURES_PER_PAGE = 5;
-  const totalPages = Math.max(
-    1,
-    Math.ceil(sortedFeatures.length / FEATURES_PER_PAGE)
-  );
+  const totalPages = Math.max(1, Math.ceil(sortedFeatures.length / FEATURES_PER_PAGE));
   const currentPage = Math.min(featurePage, totalPages);
 
   const paginatedFeatures = useMemo(() => {
@@ -428,11 +433,16 @@ function Workspace({ user, onLogout }) {
                 <span className="stat-label">Loaded in view</span>
                 <strong className="stat-value">{loadedCount}</strong>
               </div>
+
               <div className="stat-card">
-                <span className="stat-label">Source</span>
-                <strong className="stat-value">NL</strong>
+                <span className="stat-label">Total matching</span>
+                <strong className="stat-value">{totalCount}</strong>
               </div>
             </div>
+
+            <p className="panel-note">
+              Showing {loadedCount} of {totalCount} features
+            </p>
 
             {loading && <p className="panel-note">Loading features…</p>}
             {error && <p className="panel-note error-text">{error}</p>}
