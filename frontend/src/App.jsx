@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   GeoJSON,
   MapContainer,
@@ -7,7 +8,6 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
 import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -74,7 +74,7 @@ function AuthScreen({ onLogin }) {
           </h1>
           <p className="auth-description">
             Sign in to access a protected municipality workspace with JWT-backed
-            authentication, live bbox filtering, and map-based exploration.
+            authentication, bounding-box filtering, and map-based exploration.
           </p>
 
           <div className="auth-feature-list">
@@ -84,7 +84,7 @@ function AuthScreen({ onLogin }) {
             </div>
             <div className="auth-feature-item">
               <span className="auth-feature-dot" />
-              <span>Live bbox filtering with PostGIS</span>
+              <span>Bounding-box filtering from current map view</span>
             </div>
             <div className="auth-feature-item">
               <span className="auth-feature-dot" />
@@ -143,7 +143,11 @@ function AuthScreen({ onLogin }) {
 
             {message && <p className="auth-message">{message}</p>}
 
-            <button className="primary-button auth-submit" type="submit" disabled={loading}>
+            <button
+              className="primary-button auth-submit"
+              type="submit"
+              disabled={loading}
+            >
               {loading ? "Signing in..." : "Sign in"}
             </button>
           </form>
@@ -194,13 +198,13 @@ function Workspace({ user, onLogout }) {
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [visibleBoundsLabel, setVisibleBoundsLabel] = useState("Waiting for map");
   const [loadedCount, setLoadedCount] = useState(0);
   const [hasInitialFit, setHasInitialFit] = useState(false);
   const [featurePage, setFeaturePage] = useState(1);
 
   const debounceRef = useRef(null);
   const lastBoundsRef = useRef(null);
+  const selectedLayerRef = useRef(null);
 
   const fetchFeaturesByBounds = useCallback(
     async (bounds) => {
@@ -214,10 +218,6 @@ function Workspace({ user, onLogout }) {
         northEast.lng,
         northEast.lat,
       ].join(",");
-
-      setVisibleBoundsLabel(
-        `${southWest.lng.toFixed(3)}, ${southWest.lat.toFixed(3)} → ${northEast.lng.toFixed(3)}, ${northEast.lat.toFixed(3)}`
-      );
 
       try {
         setLoading(true);
@@ -258,6 +258,13 @@ function Workspace({ user, onLogout }) {
         });
         setLoadedCount(polygonFeatures.length);
         setFeaturePage(1);
+
+        if (
+          selectedFeature &&
+          !polygonFeatures.some((feature) => feature.id === selectedFeature.id)
+        ) {
+          setSelectedFeature(null);
+        }
       } catch (err) {
         setError(err.message || "Unable to load features.");
         setGeojson({
@@ -270,7 +277,7 @@ function Workspace({ user, onLogout }) {
         setLoading(false);
       }
     },
-    [onLogout, user.access]
+    [onLogout, selectedFeature, user.access]
   );
 
   const handleBoundsChange = useCallback(
@@ -283,7 +290,7 @@ function Workspace({ user, onLogout }) {
 
       debounceRef.current = setTimeout(() => {
         fetchFeaturesByBounds(bounds);
-      }, 250);
+      }, 400);
     },
     [fetchFeaturesByBounds]
   );
@@ -296,32 +303,60 @@ function Workspace({ user, onLogout }) {
     };
   }, []);
 
-  const geoJsonStyle = () => ({
-    color: "#0f172a",
-    weight: 1,
-    fillColor: "#94a3b8",
-    fillOpacity: 0.35,
-  });
+  const isSelectedFeature = useCallback(
+    (feature) => selectedFeature?.id === feature?.id,
+    [selectedFeature]
+  );
 
-  const onEachFeature = (feature, layer) => {
-    layer.on({
-      click: () => {
-        setSelectedFeature(feature);
-      },
-    });
-  };
+  const geoJsonStyle = useCallback(
+    (feature) => ({
+      color: isSelectedFeature(feature) ? "#dc2626" : "#0f172a",
+      weight: isSelectedFeature(feature) ? 3 : 1,
+      fillColor: isSelectedFeature(feature) ? "#fca5a5" : "#94a3b8",
+      fillOpacity: isSelectedFeature(feature) ? 0.55 : 0.35,
+    }),
+    [isSelectedFeature]
+  );
+
+  const onEachFeature = useCallback(
+    (feature, layer) => {
+      layer.on({
+        click: () => {
+          setSelectedFeature(feature);
+          selectedLayerRef.current = layer;
+
+          if (layer.getBounds) {
+            const bounds = layer.getBounds();
+            if (bounds && bounds.isValid()) {
+              layer._map.fitBounds(bounds.pad(0.1));
+            }
+          }
+        },
+      });
+    },
+    []
+  );
 
   const sortedFeatures = useMemo(() => {
     const features = geojson?.features ?? [];
     return [...features].sort((a, b) => {
-      const nameA = a?.properties?.name?.toLowerCase?.() || "";
-      const nameB = b?.properties?.name?.toLowerCase?.() || "";
+      const nameA =
+        a?.properties?.name?.toLowerCase?.() ||
+        a?.properties?.naam?.toLowerCase?.() ||
+        "";
+      const nameB =
+        b?.properties?.name?.toLowerCase?.() ||
+        b?.properties?.naam?.toLowerCase?.() ||
+        "";
       return nameA.localeCompare(nameB);
     });
   }, [geojson]);
 
   const FEATURES_PER_PAGE = 5;
-  const totalPages = Math.max(1, Math.ceil(sortedFeatures.length / FEATURES_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sortedFeatures.length / FEATURES_PER_PAGE)
+  );
   const currentPage = Math.min(featurePage, totalPages);
 
   const paginatedFeatures = useMemo(() => {
@@ -363,15 +398,6 @@ function Workspace({ user, onLogout }) {
             <p className="panel-text">
               Features load automatically from the current visible map extent.
             </p>
-
-            <div className="detail-list compact-list">
-              <div className="detail-item">
-                <span className="detail-key">Visible extent</span>
-                <span className="detail-value small-value">
-                  {visibleBoundsLabel}
-                </span>
-              </div>
-            </div>
 
             <div className="button-row">
               <button
@@ -431,6 +457,7 @@ function Workspace({ user, onLogout }) {
               {geojson && (
                 <>
                   <GeoJSON
+                    key={selectedFeature?.id || "no-selection"}
                     data={geojson}
                     style={geoJsonStyle}
                     onEachFeature={onEachFeature}
