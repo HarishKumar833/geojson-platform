@@ -1,6 +1,6 @@
 # 🗺️ GeoJSON Platform
 
-A full-stack geospatial web application for exploring Dutch municipalities on an interactive map, with JWT authentication and PostGIS-powered spatial queries.
+A full-stack geospatial web application for exploring Dutch municipalities on an interactive map, with JWT authentication, PostGIS-powered spatial queries, and smart frontend rendering.
 
 ![Tech Stack](https://img.shields.io/badge/Django-REST%20Framework-green?style=flat-square&logo=django)
 ![PostGIS](https://img.shields.io/badge/PostGIS-PostgreSQL-blue?style=flat-square&logo=postgresql)
@@ -13,9 +13,11 @@ A full-stack geospatial web application for exploring Dutch municipalities on an
 
 - **JWT Authentication** — Secure login and protected API access
 - **Interactive Map** — Leaflet-powered map with GeoJSON municipality overlays
-- **Spatial Filtering** — Bounding box (bbox) queries powered by PostGIS
-- **GeoDjango Backend** — Full spatial data support with Shapely and GeoPandas
-- **Fully Dockerized** — No local installation required beyond Docker
+- **Spatial Filtering** — Bounding box (bbox) queries using PostGIS
+- **Pagination** — Backend returns 100 features per request
+- **Smart Map Rendering** — Frontend dynamically aggregates paginated results for smooth UX
+- **GeoDjango Backend** — Full spatial data support
+- **Fully Dockerized** — Runs consistently across macOS, Windows, and Linux
 
 ---
 
@@ -23,9 +25,9 @@ A full-stack geospatial web application for exploring Dutch municipalities on an
 
 | Layer | Technologies |
 |---|---|
-| **Backend** | Django, Django REST Framework, GeoDjango, Shapely, GeoPandas |
+| **Backend** | Django, Django REST Framework, GeoDjango |
 | **Database** | PostgreSQL + PostGIS |
-| **Frontend** | React (Vite), Leaflet, Axios |
+| **Frontend** | React (Vite), Leaflet |
 | **Infrastructure** | Docker, Docker Compose |
 
 ---
@@ -35,14 +37,19 @@ A full-stack geospatial web application for exploring Dutch municipalities on an
 ```
 geojson-platform/
 ├── backend/
-│   ├── config/           # Django project settings
-│   ├── features/         # Geospatial features app
-│   ├── scripts/          # Data import scripts
+│   ├── config/
+│   ├── features/
+│   ├── scripts/
+│   │   └── import_via_api.py
+│   ├── data/
+│   │   └── municipalities_nl.geojson
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/              # React application
-│   └── Dockerfile
+│   ├── src/
+│   ├── public/
+│   ├── Dockerfile
+│   └── package.json
 ├── docker-compose.yml
 └── README.md
 ```
@@ -51,7 +58,7 @@ geojson-platform/
 
 ## 🚀 Getting Started
 
-> **Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your machine.
+> **Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
 
 ### 1. Clone the repository
 
@@ -66,65 +73,109 @@ cd geojson-platform
 docker compose up --build
 ```
 
-This starts three services:
-
-| Service | URL |
-|---|---|
-| Frontend (React) | http://localhost:5173 |
-| Backend (Django) | http://localhost:8000 |
-| Database (PostGIS) | Internal only |
-
 ### 3. First-time setup
-
-Run these commands once after the containers are up:
 
 ```bash
 # Create a superuser account
 docker exec -it geojson_platform_backend python manage.py createsuperuser
 
-# Import Dutch municipalities into the database
-docker exec -it geojson_platform_backend python scripts/import_municipalities.py
+# Import municipality data via API
+docker exec -it geojson_platform_backend python scripts/import_via_api.py
 ```
-
-### 4. Open the app
-
-Navigate to [http://localhost:5173](http://localhost:5173) and log in using the superuser credentials you just created.
 
 ---
 
-## 🗺️ API Reference
+## 🌐 Access
 
-All endpoints require JWT authentication. Include the token in the `Authorization` header:
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:8000 |
+| Admin Panel | http://localhost:8000/admin |
+
+---
+
+## 🔐 Authentication
+
+Obtain a JWT token:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"username":"<username>","password":"<password>"}'
+```
+
+Include the token in subsequent requests:
 
 ```
 Authorization: Bearer <your_token>
 ```
 
-### Get features within a bounding box
+---
+
+## 🗺️ API Usage
+
+**Get paginated features**
 
 ```
-GET /api/features/?bbox={min_lon},{min_lat},{max_lon},{max_lat}
+GET /api/features/
 ```
 
-**Example — query municipalities in central Netherlands:**
+**Filter by bounding box**
+
+```
+GET /api/features/?bbox=minx,miny,maxx,maxy
+```
+
+Example:
 
 ```
 GET /api/features/?bbox=5.0,52.0,6.0,53.0
 ```
 
-**Response:** GeoJSON `FeatureCollection` containing all municipalities whose geometry intersects the given bounding box.
+---
+
+## 🧠 Design Decisions
+
+### Pagination + UX Balance
+
+- Backend strictly enforces pagination (100 features per request)
+- Frontend dynamically fetches multiple pages based on the current map extent
+- Prevents empty map views while maintaining performance
+
+### Bounding Box Filtering
+
+- Implemented using PostGIS `intersects`
+- Automatically updated as the user moves or zooms the map
+
+### Docker-first Architecture
+
+- No local dependencies required beyond Docker
+- No hardcoded system paths
+- Portable across macOS, Windows, and Linux
+
+---
+
+## 📥 Data Import
+
+```bash
+python backend/scripts/import_via_api.py
+```
+
+- Reads GeoJSON using GeoPandas
+- Sends data through the REST API (not direct DB insertion)
+- Matches assignment requirements
 
 ---
 
 ## 🛠️ Development Notes
 
-- The Django admin panel is available at [http://localhost:8000/admin](http://localhost:8000/admin)
-- Static files and media are served via Django in development mode
-- The PostGIS container must be healthy before the backend starts (handled automatically by Docker Compose)
-- To reset the database, stop the containers and remove the named volume: `docker compose down -v`
+- **Reset the database:** `docker compose down -v`
+- Backend auto-migrates on startup
+- Frontend uses live bbox updates tied to map movement events
 
 ---
 
 ## 📄 License
 
-This project is open source. See [LICENSE](LICENSE) for details.
+Open source. See [LICENSE](LICENSE) for details.
