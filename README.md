@@ -164,7 +164,7 @@ python backend/scripts/import_via_api.py
 
 - Reads GeoJSON using GeoPandas
 - Sends data through the REST API (not direct DB insertion)
-- Matches assignment requirements
+
 
 ---
 
