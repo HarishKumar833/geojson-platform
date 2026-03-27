@@ -80,7 +80,7 @@ docker compose up --build
 docker exec -it geojson_platform_backend python manage.py createsuperuser
 
 # Import municipality data via API
-docker exec -it geojson_platform_backend python scripts/import_via_api.py
+docker exec -it geojson_platform_backend python scripts/import_via_api.py username password 
 ```
 
 ---
