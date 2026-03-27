@@ -151,7 +151,6 @@ GET /api/features/?bbox=5.0,52.0,6.0,53.0
 ### Docker-first Architecture
 
 - No local dependencies required beyond Docker
-- No hardcoded system paths
 - Portable across macOS, Windows, and Linux
 
 ---
